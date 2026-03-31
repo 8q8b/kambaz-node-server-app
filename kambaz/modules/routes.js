@@ -20,6 +20,13 @@ export default function ModulesRoutes(app, db) {
     const status = dao.deleteModule(moduleId);
     res.send(status);
   }
+  const updateModule = async (req, res) => {
+    const { moduleId } = req.params;
+    const moduleUpdates = req.body;
+    const status = await dao.updateModule(moduleId, moduleUpdates);
+    res.send(status);
+  }
+  app.put("/api/modules/:moduleId", updateModule);
   app.delete("/api/modules/:moduleId", deleteModule);
   app.post("/api/courses/:courseId/modules", createModuleForCourse);
 
