@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Lab5 from './lab5/index.js';
 import Hello from './Hello.js';
 import cors from 'cors';
@@ -20,6 +21,9 @@ const sessionOptions = {
     resave: false,
     saveUninitialized: false,
 };
+const CONNECTION_STRING = process.env.DATABASE_CONNECTION_STRING || "mongodb://127.0.0.1:27017/kambaz"
+mongoose.connect(CONNECTION_STRING);
+
 if (process.env.SERVER_ENV !== "development") {
     sessionOptions.proxy = true;
     sessionOptions.cookie = {
