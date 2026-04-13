@@ -1,25 +1,36 @@
 import { v4 as uuidv4 } from "uuid";
+import model from "./model.js";
 
-export default function AssignmentsDao(db) {
-  function findAssignmentsForCourse(courseId) {
-    const { assignments } = db;
-    return assignments.filter((a) => a.course === courseId);
+export default function AssignmentsDao() {
+  async function findAssignmentsForCourse(courseId) {
+    return model.find({ course: courseId }).sort({ title: 1 }).lean();
   }
-  function createAssignment(assignment) {
-    const newAssignment = { ...assignment, _id: uuidv4() };
-    db.assignments = [...db.assignments, newAssignment];
-    return newAssignment;
+
+  async function createAssignment(assignment) {
+    const doc = {
+      ...assignment,
+      _id: assignment._id || uuidv4(),
+    };
+    const created = await model.create(doc);
+    return created.toObject();
   }
-  function deleteAssignment(assignmentId) {
-    const before = db.assignments.length;
-    db.assignments = db.assignments.filter((a) => a._id !== assignmentId);
-    return db.assignments.length < before;
+
+  async function deleteAssignment(assignmentId) {
+    return model.deleteOne({ _id: assignmentId });
   }
-  function updateAssignment(assignmentId, assignmentUpdates) {
-    const assignment = db.assignments.find((a) => a._id === assignmentId);
-    if (!assignment) return undefined;
-    Object.assign(assignment, assignmentUpdates);
-    return assignment;
+
+  async function updateAssignment(assignmentId, assignmentUpdates) {
+    const { _id, ...rest } = assignmentUpdates;
+    const updated = await model.findOneAndUpdate(
+      { _id: assignmentId },
+      { $set: rest },
+      { new: true, runValidators: true }
+    );
+    return updated ? updated.toObject() : undefined;
+  }
+
+  async function deleteAssignmentsForCourse(courseId) {
+    return model.deleteMany({ course: courseId });
   }
 
   return {
@@ -27,5 +38,6 @@ export default function AssignmentsDao(db) {
     createAssignment,
     deleteAssignment,
     updateAssignment,
+    deleteAssignmentsForCourse,
   };
 }

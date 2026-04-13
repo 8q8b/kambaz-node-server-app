@@ -15,17 +15,17 @@ export default function EnrollmentsRoutes(app, db) {
     return userId;
   };
 
-  const findEnrollmentsForUser = (req, res) => {
+  const findEnrollmentsForUser = async (req, res) => {
     const userId = resolveUserId(req);
     if (!userId) {
       res.sendStatus(401);
       return;
     }
-    const enrollments = dao.findEnrollmentsForUser(userId);
+    const enrollments = await dao.findEnrollmentsForUser(userId);
     res.json(enrollments);
   };
 
-  const enrollInCourse = (req, res) => {
+  const enrollInCourse = async (req, res) => {
     const userId = resolveUserId(req);
     if (!userId) {
       res.sendStatus(401);
@@ -36,19 +36,19 @@ export default function EnrollmentsRoutes(app, db) {
       res.status(400).json({ message: "Missing course id" });
       return;
     }
-    const enrollment = dao.enrollUserInCourse(userId, course);
+    const enrollment = await dao.enrollUserInCourse(userId, course);
     res.json(enrollment);
   };
 
-  const unenrollFromCourse = (req, res) => {
+  const unenrollFromCourse = async (req, res) => {
     const userId = resolveUserId(req);
     if (!userId) {
       res.sendStatus(401);
       return;
     }
     const { courseId } = req.params;
-    const removed = dao.unenrollUserFromCourse(userId, courseId);
-    if (!removed) {
+    const result = await dao.unenrollUserFromCourse(userId, courseId);
+    if (!result.deletedCount) {
       res.sendStatus(404);
       return;
     }
