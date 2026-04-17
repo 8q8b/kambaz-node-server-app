@@ -4,14 +4,16 @@ import model from "./model.js";
 export default function UsersDao() {
  const createUser = (user) => {
    const newUser = { ...user, _id: uuidv4() };
-   users = [...users, newUser];
    return model.create(newUser);
  };
  const findAllUsers = () => model.find();
  const findUserById = (userId) => model.findById(userId);
  const findUserByUsername = (username) => model.findOne({ username: username });
  const findUserByCredentials = (username, password) => model.findOne({ username: username, password: password });
- const updateUser = (userId, user) => model.updateOne({ _id: userId }, { $set: user });
+ const updateUser = (userId, user) => {
+   const { _id, ...payload } = user;
+   return model.updateOne({ _id: userId }, { $set: payload });
+ };
  const deleteUser = (userId) => model.deleteOne({ _id: userId });
  const findUsersByRole = (role) => model.find({ role: role });
  const findUsersByPartialName = (partialName) => {
