@@ -4,6 +4,9 @@ export default function CoursesDao(db) {
   function findAllCourses() {
     return model.find({}, { name: 1, description: 1 });
   }
+  function findCoursesByAuthor(authorId) {
+    return model.find({ author: authorId }, { name: 1, description: 1, author: 1 });
+  }
   async function findCoursesForEnrolledUser(userId) {
     const {enrollments } = db;
     const courses = await model.find({}, { name: 1, description: 1 });
@@ -23,6 +26,6 @@ export default function CoursesDao(db) {
   }
   
 
-  return { findAllCourses, findCoursesForEnrolledUser, createCourse, deleteCourse, updateCourse };
+  return { findAllCourses, findCoursesByAuthor, findCoursesForEnrolledUser, createCourse, deleteCourse, updateCourse };
 }
 
