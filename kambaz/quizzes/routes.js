@@ -1,6 +1,8 @@
 import QuizzesDao from "./dao.js";
 import QuestionsDao from "../questions/dao.js";
 import EnrollmentsDao from "../enrollments/dao.js";
+import QuizAttemptsDao from "../quizAttempts/dao.js";
+import { buildGradedAnswers } from "../quizAttempts/scoring.js";
 
 function isFacultyRole(role) {
   return role === "FACULTY" || role === "ADMIN";
@@ -22,6 +24,44 @@ async function assertEnrolled(enrollmentsDao, userId, courseId, res) {
     return false;
   }
   return true;
+}
+
+function maxAttemptsForQuiz(quiz) {
+  if (!quiz.multipleAttempts) {
+    return 1;
+  }
+  const n = Number(quiz.howManyAttempts);
+  if (!Number.isFinite(n) || n < 1) {
+    return 1;
+  }
+  return Math.min(100, Math.floor(n));
+}
+
+function isWithinAvailabilityWindow(quiz, at = new Date()) {
+  if (quiz.availableFrom) {
+    const from = new Date(quiz.availableFrom);
+    if (!Number.isNaN(from.getTime()) && at < from) {
+      return false;
+    }
+  }
+  if (quiz.availableUntil) {
+    const until = new Date(quiz.availableUntil);
+    if (!Number.isNaN(until.getTime()) && at > until) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function redactAttemptForStudent(attempt, quiz) {
+  if (quiz.showCorrectAnswers) {
+    return attempt;
+  }
+  const answers = (attempt.answers || []).map((a) => {
+    const { isCorrect, pointsEarned, pointsPossible, ...rest } = a;
+    return rest;
+  });
+  return { ...attempt, answers };
 }
 
 function validateQuestionDoc(doc) {
@@ -62,6 +102,7 @@ export default function QuizRoutes(app, db) {
   const quizzesDao = QuizzesDao(db);
   const questionsDao = QuestionsDao(db);
   const enrollmentsDao = EnrollmentsDao(db);
+  const quizAttemptsDao = QuizAttemptsDao();
 
   const findQuizzesForCourse = async (req, res) => {
     const { courseId } = req.params;
@@ -288,6 +329,172 @@ export default function QuizRoutes(app, db) {
     res.json(updated);
   };
 
+  const startQuizAttempt = async (req, res) => {
+    const { quizId } = req.params;
+    const user = getCurrentUser(req, res);
+    if (!user) {
+      return;
+    }
+    if (isFacultyRole(user.role)) {
+      res.status(403).json({ message: "Faculty cannot start graded quiz attempts" });
+      return;
+    }
+    const quiz = await quizzesDao.findQuizById(quizId);
+    if (!quiz) {
+      res.sendStatus(404);
+      return;
+    }
+    if (!(await assertEnrolled(enrollmentsDao, user._id, quiz.course, res))) {
+      return;
+    }
+    if (!quiz.published) {
+      res.status(403).json({ message: "Quiz is not available" });
+      return;
+    }
+    if (!isWithinAvailabilityWindow(quiz)) {
+      res.status(403).json({ message: "Quiz is not available at this time" });
+      return;
+    }
+    if (quiz.accessCode && String(quiz.accessCode).trim() !== "") {
+      const code = req.body?.accessCode;
+      if (code !== quiz.accessCode) {
+        res.status(403).json({ message: "Invalid or missing access code" });
+        return;
+      }
+    }
+    const maxAttempts = maxAttemptsForQuiz(quiz);
+    const inProgress = await quizAttemptsDao.findInProgressAttempt(quizId, user._id);
+    if (inProgress) {
+      res.json(inProgress);
+      return;
+    }
+    const submittedCount = await quizAttemptsDao.countSubmittedAttempts(quizId, user._id);
+    if (submittedCount >= maxAttempts) {
+      res.status(403).json({ message: "No attempts remaining" });
+      return;
+    }
+    const attempt = await quizAttemptsDao.createAttempt({
+      quizId,
+      userId: user._id,
+      attemptNumber: submittedCount + 1,
+    });
+    res.json(attempt);
+  };
+
+  const getLastQuizAttempt = async (req, res) => {
+    const { quizId } = req.params;
+    const user = getCurrentUser(req, res);
+    if (!user) {
+      return;
+    }
+    const quiz = await quizzesDao.findQuizById(quizId);
+    if (!quiz) {
+      res.sendStatus(404);
+      return;
+    }
+    if (!(await assertEnrolled(enrollmentsDao, user._id, quiz.course, res))) {
+      return;
+    }
+    const attempt = await quizAttemptsDao.findLastSubmittedAttempt(quizId, user._id);
+    if (!attempt) {
+      res.sendStatus(404);
+      return;
+    }
+    if (isFacultyRole(user.role)) {
+      res.status(403).json({ message: "Only students have graded attempts" });
+      return;
+    }
+    res.json(redactAttemptForStudent(attempt, quiz));
+  };
+
+  const getQuizAttemptById = async (req, res) => {
+    const { attemptId } = req.params;
+    const user = getCurrentUser(req, res);
+    if (!user) {
+      return;
+    }
+    const attempt = await quizAttemptsDao.findAttemptById(attemptId);
+    if (!attempt || attempt.user !== user._id) {
+      res.sendStatus(404);
+      return;
+    }
+    const quiz = await quizzesDao.findQuizById(attempt.quiz);
+    if (!quiz) {
+      res.sendStatus(404);
+      return;
+    }
+    if (!(await assertEnrolled(enrollmentsDao, user._id, quiz.course, res))) {
+      return;
+    }
+    if (isFacultyRole(user.role)) {
+      res.status(403).json({ message: "Faculty cannot view student attempt records here" });
+      return;
+    }
+    if (!quiz.published && attempt.status === "IN_PROGRESS") {
+      res.status(403).json({ message: "Quiz is not available" });
+      return;
+    }
+    if (attempt.status === "SUBMITTED") {
+      res.json(redactAttemptForStudent(attempt, quiz));
+      return;
+    }
+    const { answers: _a, score: _s, maxScore: _m, ...meta } = attempt;
+    res.json(meta);
+  };
+
+  const submitQuizAttempt = async (req, res) => {
+    const { attemptId } = req.params;
+    const user = getCurrentUser(req, res);
+    if (!user) {
+      return;
+    }
+    if (isFacultyRole(user.role)) {
+      res.status(403).json({ message: "Faculty cannot submit graded quiz attempts" });
+      return;
+    }
+    const attempt = await quizAttemptsDao.findAttemptById(attemptId);
+    if (!attempt || attempt.user !== user._id) {
+      res.sendStatus(404);
+      return;
+    }
+    if (attempt.status !== "IN_PROGRESS") {
+      res.status(400).json({ message: "Attempt is not in progress" });
+      return;
+    }
+    const quiz = await quizzesDao.findQuizById(attempt.quiz);
+    if (!quiz) {
+      res.sendStatus(404);
+      return;
+    }
+    if (!(await assertEnrolled(enrollmentsDao, user._id, quiz.course, res))) {
+      return;
+    }
+    if (!quiz.published) {
+      res.status(403).json({ message: "Quiz is not available" });
+      return;
+    }
+    const limitMin = Number(quiz.timeLimitMinutes) || 0;
+    if (limitMin > 0 && attempt.startedAt) {
+      const deadline = new Date(attempt.startedAt).getTime() + limitMin * 60_000;
+      if (Date.now() > deadline) {
+        res.status(400).json({ message: "Time limit exceeded" });
+        return;
+      }
+    }
+    const questions = await questionsDao.findQuestionsForQuiz(attempt.quiz);
+    const { gradedAnswers, score, maxScore } = buildGradedAnswers(questions, req.body?.answers);
+    const submitted = await quizAttemptsDao.submitAttempt(attemptId, user._id, {
+      answers: gradedAnswers,
+      score,
+      maxScore,
+    });
+    if (!submitted) {
+      res.status(400).json({ message: "Unable to submit attempt" });
+      return;
+    }
+    res.json(redactAttemptForStudent(submitted, quiz));
+  };
+
   const deleteQuestion = async (req, res) => {
     const { questionId } = req.params;
     const user = getCurrentUser(req, res);
@@ -326,6 +533,11 @@ export default function QuizRoutes(app, db) {
   app.put("/api/quizzes/:quizId", updateQuiz);
   app.delete("/api/quizzes/:quizId", deleteQuiz);
   app.patch("/api/quizzes/:quizId/publish", publishQuiz);
+
+  app.get("/api/quizzes/:quizId/attempts/last", getLastQuizAttempt);
+  app.post("/api/quizzes/:quizId/attempts", startQuizAttempt);
+  app.get("/api/quiz-attempts/:attemptId", getQuizAttemptById);
+  app.post("/api/quiz-attempts/:attemptId/submit", submitQuizAttempt);
 
   app.get("/api/quizzes/:quizId/questions", findQuestionsForQuiz);
   app.post("/api/quizzes/:quizId/questions", createQuestionForQuiz);

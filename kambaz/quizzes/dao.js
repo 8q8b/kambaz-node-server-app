@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import model from "./model.js";
 import questionModel from "../questions/model.js";
+import quizAttemptModel from "../quizAttempts/model.js";
 
 export default function QuizzesDao() {
   async function findQuizzesForCourse(courseId, { publishedOnly } = {}) {
@@ -26,6 +27,7 @@ export default function QuizzesDao() {
 
   async function deleteQuiz(quizId) {
     await questionModel.deleteMany({ quiz: quizId });
+    await quizAttemptModel.deleteMany({ quiz: quizId });
     return model.deleteOne({ _id: quizId });
   }
 
@@ -52,6 +54,7 @@ export default function QuizzesDao() {
     const ids = await model.distinct("_id", { course: courseId });
     if (ids.length) {
       await questionModel.deleteMany({ quiz: { $in: ids } });
+      await quizAttemptModel.deleteMany({ quiz: { $in: ids } });
     }
     return model.deleteMany({ course: courseId });
   }

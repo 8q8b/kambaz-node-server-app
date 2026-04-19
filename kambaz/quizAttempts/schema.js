@@ -6,6 +6,9 @@ const attemptAnswerSchema = new mongoose.Schema(
     selectedChoiceId: String,
     booleanAnswer: Boolean,
     textAnswer: String,
+    isCorrect: Boolean,
+    pointsEarned: Number,
+    pointsPossible: Number,
   },
   { _id: false }
 );
