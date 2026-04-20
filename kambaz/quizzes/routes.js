@@ -64,6 +64,65 @@ function redactAttemptForStudent(attempt, quiz) {
   return { ...attempt, answers };
 }
 
+function normalizeYesNoBoolean(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return value;
+  }
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "YES" || normalized === "TRUE") {
+    return true;
+  }
+  if (normalized === "NO" || normalized === "FALSE") {
+    return false;
+  }
+  return value;
+}
+
+function normalizeQuizType(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  const allowed = new Set([
+    "GRADED_QUIZ",
+    "PRACTICE_QUIZ",
+    "GRADED_SURVEY",
+    "UNGRADED_SURVEY",
+  ]);
+  return allowed.has(normalized) ? normalized : value;
+}
+
+function normalizeAssignmentGroup(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  const allowed = new Set(["QUIZZES", "EXAMS", "ASSIGNMENTS", "PROJECT"]);
+  return allowed.has(normalized) ? normalized : value;
+}
+
+function normalizeQuizEditableFields(payload = {}) {
+  const normalized = { ...payload };
+  if (normalized.quizType != null) {
+    normalized.quizType = normalizeQuizType(normalized.quizType);
+  }
+  if (normalized.assignmentGroup != null) {
+    normalized.assignmentGroup = normalizeAssignmentGroup(normalized.assignmentGroup);
+  }
+  if (normalized.webcamRequired != null) {
+    normalized.webcamRequired = normalizeYesNoBoolean(normalized.webcamRequired);
+  }
+  if (normalized.lockQuestionsAfterAnswering != null) {
+    normalized.lockQuestionsAfterAnswering = normalizeYesNoBoolean(
+      normalized.lockQuestionsAfterAnswering
+    );
+  }
+  return normalized;
+}
+
 function validateQuestionDoc(doc) {
   if (!doc.type || !["multiple_choice", "true_false", "fill_blank"].includes(doc.type)) {
     return "Invalid or missing question type";
@@ -132,7 +191,7 @@ export default function QuizRoutes(app, db) {
       return;
     }
     const quiz = {
-      ...req.body,
+      ...normalizeQuizEditableFields(req.body),
       course: courseId,
     };
     if (!quiz.title || String(quiz.title).trim() === "") {
@@ -184,7 +243,7 @@ export default function QuizRoutes(app, db) {
     if (!(await assertEnrolled(enrollmentsDao, user._id, existing.course, res))) {
       return;
     }
-    const { course: _dropCourse, _id: _dropId, ...updates } = req.body;
+    const { course: _dropCourse, _id: _dropId, ...updates } = normalizeQuizEditableFields(req.body);
     const updated = await quizzesDao.updateQuiz(quizId, updates);
     res.json(updated);
   };
