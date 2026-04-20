@@ -381,6 +381,33 @@ export default function QuizRoutes(app, db) {
     res.json(attempt);
   };
 
+  const getInProgressQuizAttempt = async (req, res) => {
+    const { quizId } = req.params;
+    const user = getCurrentUser(req, res);
+    if (!user) {
+      return;
+    }
+    if (isFacultyRole(user.role)) {
+      res.status(403).json({ message: "Only students have in-progress attempts" });
+      return;
+    }
+    const quiz = await quizzesDao.findQuizById(quizId);
+    if (!quiz) {
+      res.sendStatus(404);
+      return;
+    }
+    if (!(await assertEnrolled(enrollmentsDao, user._id, quiz.course, res))) {
+      return;
+    }
+    const attempt = await quizAttemptsDao.findInProgressAttempt(quizId, user._id);
+    if (!attempt) {
+      res.sendStatus(404);
+      return;
+    }
+    const { answers: _a, score: _s, maxScore: _m, ...meta } = attempt;
+    res.json(meta);
+  };
+
   const getLastQuizAttempt = async (req, res) => {
     const { quizId } = req.params;
     const user = getCurrentUser(req, res);
@@ -534,6 +561,7 @@ export default function QuizRoutes(app, db) {
   app.delete("/api/quizzes/:quizId", deleteQuiz);
   app.patch("/api/quizzes/:quizId/publish", publishQuiz);
 
+  app.get("/api/quizzes/:quizId/attempts/in-progress", getInProgressQuizAttempt);
   app.get("/api/quizzes/:quizId/attempts/last", getLastQuizAttempt);
   app.post("/api/quizzes/:quizId/attempts", startQuizAttempt);
   app.get("/api/quiz-attempts/:attemptId", getQuizAttemptById);
